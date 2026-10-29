@@ -42,6 +42,7 @@ idf_component_register(
         "api/api_theme.c"
         "api/api_ha_diagnostics.c"
         ${PANEL_DRIVER_SRCS}
+        "drivers/display_dim.c"
         "ha/ha_client.c"
         "ha/ha_ws.c"
         "ha/ha_model.c"

@@ -21,7 +21,6 @@
 
 static bool s_display_ready = false;
 static lv_display_t *s_lv_display = NULL;
-static esp_timer_handle_t s_dim_timer = NULL;
 static int s_display_brightness = -1;
 
 static lvgl_port_cfg_t display_port_cfg(void)
@@ -61,55 +60,6 @@ esp_err_t display_set_brightness_percent(int percent)
     return err;
 }
 
-static void display_dim_timer_cb(void *arg)
-{
-    (void)arg;
-    if (!s_display_ready) {
-        return;
-    }
-    (void)display_set_brightness_percent(APP_DISPLAY_DIM_BRIGHTNESS_PERCENT);
-}
-
-static esp_err_t display_dim_timer_init(void)
-{
-    if (s_dim_timer != NULL) {
-        return ESP_OK;
-    }
-
-    const esp_timer_create_args_t timer_args = {
-        .callback = display_dim_timer_cb,
-        .arg = NULL,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "display_dim",
-        .skip_unhandled_events = true,
-    };
-    return esp_timer_create(&timer_args, &s_dim_timer);
-}
-
-static void display_restart_dim_timer(void)
-{
-    if (s_dim_timer == NULL) {
-        return;
-    }
-    if (esp_timer_is_active(s_dim_timer)) {
-        (void)esp_timer_stop(s_dim_timer);
-    }
-    const uint64_t timeout_us = (uint64_t)APP_DISPLAY_DIM_TIMEOUT_MS * 1000ULL;
-    esp_err_t err = esp_timer_start_once(s_dim_timer, timeout_us);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG_DISPLAY, "Could not start display dim timer: %s", esp_err_to_name(err));
-    }
-}
-
-void display_note_activity(void)
-{
-    if (!s_display_ready) {
-        return;
-    }
-    (void)display_set_brightness_percent(APP_DISPLAY_ACTIVE_BRIGHTNESS_PERCENT);
-    display_restart_dim_timer();
-}
-
 esp_err_t display_init(void)
 {
     if (s_display_ready) {
@@ -135,14 +85,12 @@ esp_err_t display_init(void)
         ESP_LOGW(TAG_DISPLAY, "Could not enable LCD panel output: %s", esp_err_to_name(err));
     }
 
-    err = display_set_brightness_percent(APP_DISPLAY_ACTIVE_BRIGHTNESS_PERCENT);
+    /* Loads the saved user brightness, so do it before lighting the backlight. */
+    (void)display_dim_init();
+
+    err = display_set_brightness_percent(display_get_user_brightness());
     if (err != ESP_OK) {
         ESP_LOGW(TAG_DISPLAY, "Could not enable backlight: %s", esp_err_to_name(err));
-    }
-
-    err = display_dim_timer_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG_DISPLAY, "Could not create display dim timer: %s", esp_err_to_name(err));
     }
 
     lvgl_port_display_cfg_t disp_cfg = {

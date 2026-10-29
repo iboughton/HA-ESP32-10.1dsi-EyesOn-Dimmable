@@ -27,7 +27,13 @@ static const uint32_t TOUCH_POLL_PERIOD_MS = 10;
 static void touch_activity_event_cb(lv_event_t *event)
 {
     (void)event;
-    display_note_activity();
+    if (display_wake_from_dim() && s_touch_indev != NULL) {
+        /* The touch that wakes a dimmed screen only restores the backlight: keep
+         * the press from reaching the widget underneath, and ignore the rest of
+         * the gesture until the finger lifts. */
+        lv_indev_stop_processing(s_touch_indev);
+        lv_indev_wait_release(s_touch_indev);
+    }
 }
 
 static lv_display_t *touch_get_display(void)

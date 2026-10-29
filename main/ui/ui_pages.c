@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include "app_config.h"
+#include "drivers/display_init.h"
 #include "ui/fonts/app_text_fonts.h"
 #include "ui/ui_i18n.h"
 #include "ui/theme/theme_default.h"
@@ -39,6 +40,10 @@ static lv_obj_t *s_api_icon = NULL;
 static lv_obj_t *s_nav_bar = NULL;
 static lv_obj_t *s_nav_home_button = NULL;
 static lv_obj_t *s_nav_home_label = NULL;
+static lv_obj_t *s_nav_bright_down_button = NULL;
+static lv_obj_t *s_nav_bright_down_label = NULL;
+static lv_obj_t *s_nav_bright_up_button = NULL;
+static lv_obj_t *s_nav_bright_up_label = NULL;
 static lv_obj_t *s_nav_extra_buttons[APP_MAX_PAGES - 1] = {0};
 static lv_obj_t *s_nav_extra_labels[APP_MAX_PAGES - 1] = {0};
 static uint16_t s_nav_extra_page_index[APP_MAX_PAGES - 1] = {0};
@@ -125,11 +130,23 @@ static void ui_pages_apply_tab_style(uint16_t selected_index)
     const lv_coord_t nav_side_gap = 8;
     const lv_coord_t nav_min_side_btn_w = 64;
     const lv_coord_t nav_home_x = (APP_SCREEN_WIDTH - nav_home_w) / 2;
+    const lv_coord_t nav_bright_w = 52;
+    const lv_coord_t nav_bright_x = APP_SCREEN_WIDTH - nav_outer_margin - 2 * nav_bright_w - nav_side_gap;
 
     lv_obj_set_size(s_nav_home_button, nav_home_w, nav_btn_h);
     lv_obj_set_pos(s_nav_home_button, nav_home_x, nav_btn_y);
     ui_pages_style_nav_button(s_nav_home_button, s_nav_home_label, (selected_index == 0), true);
     lv_obj_clear_flag(s_nav_home_button, LV_OBJ_FLAG_HIDDEN);
+
+    /* Brightness -/+ sit in the bottom-right corner; page tabs fill the space before them. */
+    if (s_nav_bright_down_button != NULL && s_nav_bright_up_button != NULL) {
+        lv_obj_set_size(s_nav_bright_down_button, nav_bright_w, nav_btn_h);
+        lv_obj_set_pos(s_nav_bright_down_button, nav_bright_x, nav_btn_y);
+        ui_pages_style_nav_button(s_nav_bright_down_button, s_nav_bright_down_label, false, true);
+        lv_obj_set_size(s_nav_bright_up_button, nav_bright_w, nav_btn_h);
+        lv_obj_set_pos(s_nav_bright_up_button, nav_bright_x + nav_bright_w + nav_side_gap, nav_btn_y);
+        ui_pages_style_nav_button(s_nav_bright_up_button, s_nav_bright_up_label, false, true);
+    }
 
     uint16_t extra_count = (s_page_count > 1) ? (uint16_t)(s_page_count - 1U) : 0U;
     uint16_t left_count = (uint16_t)((extra_count + 1U) / 2U);
@@ -138,7 +155,7 @@ static void ui_pages_apply_tab_style(uint16_t selected_index)
     lv_coord_t left_start = nav_outer_margin;
     lv_coord_t left_end = nav_home_x - nav_home_gap;
     lv_coord_t right_start = nav_home_x + nav_home_w + nav_home_gap;
-    lv_coord_t right_end = APP_SCREEN_WIDTH - nav_outer_margin;
+    lv_coord_t right_end = nav_bright_x - nav_home_gap;
 
     lv_coord_t left_region_w = (left_end > left_start) ? (left_end - left_start) : 0;
     lv_coord_t right_region_w = (right_end > right_start) ? (right_end - right_start) : 0;
@@ -317,6 +334,33 @@ static void ui_nav_home_button_event_cb(lv_event_t *event)
 #endif
 }
 
+static void ui_nav_brightness_button_event_cb(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+        return;
+    }
+    const int delta = (int)(intptr_t)lv_event_get_user_data(event);
+    (void)display_adjust_user_brightness(delta);
+}
+
+static lv_obj_t *ui_pages_create_brightness_button(const char *symbol, int delta, lv_obj_t **label_out)
+{
+    lv_obj_t *btn = lv_obj_create(s_nav_bar);
+    lv_obj_remove_style_all(btn);
+    lv_obj_set_ext_click_area(btn, 10);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(btn, ui_nav_brightness_button_event_cb, LV_EVENT_CLICKED, (void *)(intptr_t)delta);
+
+    lv_obj_t *label = lv_label_create(btn);
+    lv_label_set_text(label, symbol);
+    lv_obj_set_style_text_font(label, TOPBAR_ICON_FONT, LV_PART_MAIN);
+    lv_obj_center(label);
+
+    *label_out = label;
+    return btn;
+}
+
 static void ui_nav_extra_button_event_cb(lv_event_t *event)
 {
     if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
@@ -413,6 +457,11 @@ static void ui_pages_create_nav(lv_obj_t *screen)
     lv_obj_set_style_text_font(s_nav_home_label, TOPBAR_ICON_FONT, LV_PART_MAIN);
     lv_obj_center(s_nav_home_label);
 
+    s_nav_bright_down_button = ui_pages_create_brightness_button(
+        LV_SYMBOL_MINUS, -APP_DISPLAY_BRIGHTNESS_STEP_PERCENT, &s_nav_bright_down_label);
+    s_nav_bright_up_button = ui_pages_create_brightness_button(
+        LV_SYMBOL_PLUS, APP_DISPLAY_BRIGHTNESS_STEP_PERCENT, &s_nav_bright_up_label);
+
     for (uint16_t i = 0; i < (APP_MAX_PAGES - 1); i++) {
         lv_obj_t *btn = lv_obj_create(s_nav_bar);
         lv_obj_remove_style_all(btn);
@@ -450,6 +499,10 @@ void ui_pages_init(void)
     s_nav_bar = NULL;
     s_nav_home_button = NULL;
     s_nav_home_label = NULL;
+    s_nav_bright_down_button = NULL;
+    s_nav_bright_down_label = NULL;
+    s_nav_bright_up_button = NULL;
+    s_nav_bright_up_label = NULL;
     memset(s_nav_extra_buttons, 0, sizeof(s_nav_extra_buttons));
     memset(s_nav_extra_labels, 0, sizeof(s_nav_extra_labels));
     memset(s_nav_extra_page_index, 0, sizeof(s_nav_extra_page_index));

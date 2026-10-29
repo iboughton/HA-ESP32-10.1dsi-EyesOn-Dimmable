@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: LicenseRef-FNCL-1.1
+# Copyright (c) 2026 Cpt_Kirk
+# Panel10 partition layout for 16 MB SPI flash.
+# Three 4 MB app slots retain OTA support; current panel10 image is under 4 MB.
+# Name,   Type, SubType, Offset,    Size,      Flags
+nvs,      data, nvs,     0x9000,    24K,
+otadata,  data, ota,     0xf000,    8K,
+phy_init, data, phy,    0x11000,    4K,
+factory,  app,  factory, 0x20000,   0x400000,
+ota_0,    app,  ota_0,   0x420000,  0x400000,
+ota_1,    app,  ota_1,   0x820000,  0x400000,
+storage,  data, littlefs,0xC20000,  0x3E0000,

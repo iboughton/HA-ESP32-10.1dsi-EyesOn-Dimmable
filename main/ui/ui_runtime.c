@@ -241,6 +241,16 @@ static ui_widget_size_limits_t ui_runtime_widget_size_limits(const char *type)
 #endif
         limits.max_w = APP_CONTENT_BOX_WIDTH;
         limits.max_h = APP_CONTENT_BOX_HEIGHT;
+    } else if (strcmp(type, "alarm_panel") == 0) {
+#if defined(CONFIG_APP_PANEL_VARIANT_S3_480)
+        limits.min_w = 160;
+        limits.min_h = 120;
+#else
+        limits.min_w = 200;
+        limits.min_h = 150;
+#endif
+        limits.max_w = APP_CONTENT_BOX_WIDTH;
+        limits.max_h = APP_CONTENT_BOX_HEIGHT;
     }
 
     if (limits.max_w > APP_CONTENT_BOX_WIDTH) {
@@ -376,7 +386,7 @@ static void ui_runtime_apply_entity_state_ex(const char *entity_id, bool mark_un
         bool is_primary = (strncmp(entity_id, s_widgets[i].entity_id, APP_MAX_ENTITY_ID_LEN) == 0);
         bool is_secondary = (s_widgets[i].secondary_entity_id[0] != '\0') &&
                             (strncmp(entity_id, s_widgets[i].secondary_entity_id, APP_MAX_ENTITY_ID_LEN) == 0);
-        if (!is_primary && !is_secondary) {
+        if (!is_primary && !is_secondary && !ui_widget_factory_tracks_entity(&s_widgets[i], entity_id)) {
             continue;
         }
         if (found) {
@@ -549,6 +559,7 @@ static bool ui_runtime_widget_from_json(cJSON *widget_json, ui_widget_def_t *out
     out->y = y->valueint;
     out->w = w->valueint;
     out->h = h->valueint;
+    out->json = widget_json;
     ui_runtime_clamp_widget_rect(out);
     return true;
 }
@@ -644,7 +655,7 @@ esp_err_t ui_runtime_load_layout(const char *layout_json)
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (!display_lock(0)) {
+    if (!display_lock(5000)) {
         cJSON_Delete(root);
         return ESP_ERR_TIMEOUT;
     }
@@ -874,7 +885,7 @@ esp_err_t ui_runtime_init(void)
         return err;
     }
 
-    if (!display_lock(0)) {
+    if (!display_lock(5000)) {
         return ESP_ERR_TIMEOUT;
     }
     s_topbar_cache.valid = false;

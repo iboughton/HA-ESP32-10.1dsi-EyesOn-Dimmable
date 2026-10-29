@@ -23,6 +23,8 @@
 #include "esp_app_desc.h"
 #include "esp_app_format.h"
 #include "esp_hosted.h"
+#include "esp_ota_ops.h"
+#include "esp_partition.h"
 #include "esp_system.h"
 #endif
 
@@ -30,6 +32,7 @@
 #include "freertos/event_groups.h"
 
 #include "app_config.h"
+#include "net/eth_mgr.h"
 #include "ui/ui_boot_splash.h"
 #include "util/log_tags.h"
 
@@ -386,6 +389,9 @@ static void wifi_mgr_try_reconnect(uint8_t reason, int attempt_no)
 #define HOSTED_C6_OTA_CHUNK_SIZE 1500U
 #define HOSTED_C6_FWVER_QUERY_RETRIES 3
 #define HOSTED_C6_FWVER_QUERY_RETRY_DELAY_MS 300
+/* When no C6 image is embedded in the app, a raw network_adapter_esp32c6.bin may be
+ * written with esptool into this (otherwise idle) app slot for a one-off C6 upgrade. */
+#define HOSTED_C6_FW_STAGING_PARTITION "ota_1"
 
 static EventGroupHandle_t s_hosted_event_group = NULL;
 static esp_event_handler_instance_t s_hosted_event_instance = NULL;
@@ -577,20 +583,8 @@ static bool hosted_parse_version_text(const char *text, uint32_t *major, uint32_
     return true;
 }
 
-#if APP_HAVE_HOSTED_C6_FW_IMAGE
-static esp_err_t hosted_get_embedded_c6_fw(const uint8_t **out_data, size_t *out_len, char *out_version, size_t out_version_len)
+static esp_err_t hosted_validate_c6_fw(const uint8_t *start, size_t len, char *out_version, size_t out_version_len)
 {
-    if (out_data == NULL || out_len == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    const uint8_t *start = _binary_hosted_c6_fw_bin_start;
-    const uint8_t *end = _binary_hosted_c6_fw_bin_end;
-    if (start == NULL || end == NULL || end <= start) {
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    size_t len = (size_t)(end - start);
     if (len < (sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t))) {
         return ESP_ERR_INVALID_SIZE;
     }
@@ -612,11 +606,110 @@ static esp_err_t hosted_get_embedded_c6_fw(const uint8_t **out_data, size_t *out
     if (out_version != NULL && out_version_len > 0) {
         strlcpy(out_version, app_desc->version, out_version_len);
     }
+    return ESP_OK;
+}
+
+#if APP_HAVE_HOSTED_C6_FW_IMAGE
+static esp_err_t hosted_get_embedded_c6_fw(const uint8_t **out_data, size_t *out_len, char *out_version, size_t out_version_len)
+{
+    if (out_data == NULL || out_len == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const uint8_t *start = _binary_hosted_c6_fw_bin_start;
+    const uint8_t *end = _binary_hosted_c6_fw_bin_end;
+    if (start == NULL || end == NULL || end <= start) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    size_t len = (size_t)(end - start);
+    esp_err_t err = hosted_validate_c6_fw(start, len, out_version, out_version_len);
+    if (err != ESP_OK) {
+        return err;
+    }
     *out_data = start;
     *out_len = len;
     return ESP_OK;
 }
+#else
+/* Walks the ESP image segment table to recover the file length, since a raw partition
+ * does not record how many bytes esptool wrote. */
+static size_t hosted_c6_fw_image_len(const uint8_t *start, size_t max_len)
+{
+    const esp_image_header_t *image_header = (const esp_image_header_t *)start;
+    if (max_len < sizeof(esp_image_header_t) || image_header->magic != ESP_IMAGE_HEADER_MAGIC ||
+        image_header->segment_count == 0 || image_header->segment_count > ESP_IMAGE_MAX_SEGMENTS) {
+        return 0;
+    }
+
+    size_t offset = sizeof(esp_image_header_t);
+    for (uint8_t i = 0; i < image_header->segment_count; i++) {
+        if (offset + sizeof(esp_image_segment_header_t) > max_len) {
+            return 0;
+        }
+        const esp_image_segment_header_t *seg = (const esp_image_segment_header_t *)(start + offset);
+        offset += sizeof(esp_image_segment_header_t) + seg->data_len;
+        if (offset > max_len) {
+            return 0;
+        }
+    }
+
+    /* Checksum byte sits at the end of the next 16-byte block, then optional SHA-256. */
+    offset = (offset | 15U) + 1U;
+    if (image_header->hash_appended) {
+        offset += 32U;
+    }
+    return (offset <= max_len) ? offset : 0;
+}
+
+static esp_err_t hosted_get_staged_c6_fw(const uint8_t **out_data, size_t *out_len, char *out_version,
+    size_t out_version_len, esp_partition_mmap_handle_t *out_mmap)
+{
+    const esp_partition_t *part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, HOSTED_C6_FW_STAGING_PARTITION);
+    if (part == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (part == esp_ota_get_running_partition()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Cheap header probe before mapping: skip unless the slot holds an ESP32-C6 image. */
+    esp_image_header_t probe = {0};
+    esp_err_t err = esp_partition_read(part, 0, &probe, sizeof(probe));
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (probe.magic != ESP_IMAGE_HEADER_MAGIC || probe.chip_id != ESP_CHIP_ID_ESP32C6) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    const void *mapped = NULL;
+    esp_partition_mmap_handle_t handle = 0;
+    err = esp_partition_mmap(part, 0, part->size, ESP_PARTITION_MMAP_DATA, &mapped, &handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const uint8_t *start = (const uint8_t *)mapped;
+    size_t len = hosted_c6_fw_image_len(start, part->size);
+    err = (len == 0) ? ESP_ERR_INVALID_SIZE : hosted_validate_c6_fw(start, len, out_version, out_version_len);
+    if (err != ESP_OK) {
+        esp_partition_munmap(handle);
+        return err;
+    }
+
+    ESP_LOGW(TAG_WIFI, "Using C6 firmware staged in '%s' partition at 0x%" PRIx32,
+        part->label, part->address);
+    *out_data = start;
+    *out_len = len;
+    *out_mmap = handle;
+    return ESP_OK;
+}
 #endif
+
+static void wifi_mgr_flash_c6_fw(const esp_hosted_coprocessor_fwver_t *running_fw, const uint8_t *fw_data,
+    size_t fw_len, const char *fw_version_text);
 
 static void wifi_mgr_maybe_auto_update_c6_fw(const esp_hosted_coprocessor_fwver_t *running_fw)
 {
@@ -624,7 +717,6 @@ static void wifi_mgr_maybe_auto_update_c6_fw(const esp_hosted_coprocessor_fwver_
         return;
     }
 
-    const bool allow_version_mismatch = (APP_HOSTED_ALLOW_BUNDLED_C6_VERSION_MISMATCH != 0);
     uint32_t host_version = hosted_version_pack(
         ESP_HOSTED_VERSION_MAJOR_1, ESP_HOSTED_VERSION_MINOR_1, ESP_HOSTED_VERSION_PATCH_1);
     uint32_t running_version = hosted_version_pack(running_fw->major1, running_fw->minor1, running_fw->patch1);
@@ -646,19 +738,39 @@ static void wifi_mgr_maybe_auto_update_c6_fw(const esp_hosted_coprocessor_fwver_
             ESP_HOSTED_VERSION_PRINTF_ARGS(host_version));
     }
 
-#if !APP_HAVE_HOSTED_C6_FW_IMAGE
-    ESP_LOGW(TAG_WIFI, "No embedded C6 firmware image available; skipping automatic C6 update");
-    return;
-#else
     const uint8_t *fw_data = NULL;
     size_t fw_len = 0;
     char fw_version_text[32] = {0};
+#if APP_HAVE_HOSTED_C6_FW_IMAGE
     esp_err_t fw_meta_err = hosted_get_embedded_c6_fw(&fw_data, &fw_len, fw_version_text, sizeof(fw_version_text));
     if (fw_meta_err != ESP_OK) {
         ESP_LOGW(TAG_WIFI, "Embedded C6 firmware image invalid/unavailable (%s), skip auto update",
             esp_err_to_name(fw_meta_err));
         return;
     }
+    wifi_mgr_flash_c6_fw(running_fw, fw_data, fw_len, fw_version_text);
+#else
+    esp_partition_mmap_handle_t fw_mmap = 0;
+    esp_err_t fw_meta_err = hosted_get_staged_c6_fw(
+        &fw_data, &fw_len, fw_version_text, sizeof(fw_version_text), &fw_mmap);
+    if (fw_meta_err != ESP_OK) {
+        ESP_LOGW(TAG_WIFI, "No embedded or staged ('%s') C6 firmware image available (%s); "
+            "skipping automatic C6 update", HOSTED_C6_FW_STAGING_PARTITION, esp_err_to_name(fw_meta_err));
+        return;
+    }
+    wifi_mgr_flash_c6_fw(running_fw, fw_data, fw_len, fw_version_text);
+    esp_partition_munmap(fw_mmap);
+#endif
+}
+
+/* Returns only on failure or skip; a successful update restarts the host. */
+static void wifi_mgr_flash_c6_fw(const esp_hosted_coprocessor_fwver_t *running_fw, const uint8_t *fw_data,
+    size_t fw_len, const char *fw_version_text)
+{
+    const bool allow_version_mismatch = (APP_HOSTED_ALLOW_BUNDLED_C6_VERSION_MISMATCH != 0);
+    uint32_t host_version = hosted_version_pack(
+        ESP_HOSTED_VERSION_MAJOR_1, ESP_HOSTED_VERSION_MINOR_1, ESP_HOSTED_VERSION_PATCH_1);
+    uint32_t running_version = hosted_version_pack(running_fw->major1, running_fw->minor1, running_fw->patch1);
 
     uint32_t bundled_major = 0;
     uint32_t bundled_minor = 0;
@@ -757,7 +869,6 @@ static void wifi_mgr_maybe_auto_update_c6_fw(const esp_hosted_coprocessor_fwver_
     ui_boot_splash_set_status("C6 update done, rebooting...");
     ESP_LOGW(TAG_WIFI, "C6 OTA update completed. Rebooting host to resynchronize transport");
     esp_restart();
-#endif
 }
 
 static void hosted_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
@@ -1003,7 +1114,7 @@ esp_err_t wifi_mgr_init(const wifi_mgr_config_t *cfg)
 
 bool wifi_mgr_is_connected(void)
 {
-    return s_wifi_connected;
+    return s_wifi_connected || eth_mgr_has_ip();
 }
 
 #if CONFIG_ESP_HOSTED_ENABLED
@@ -1144,11 +1255,17 @@ static esp_err_t wifi_mgr_force_reconnect_internal(bool allow_transport_escalati
 
 esp_err_t wifi_mgr_force_reconnect(void)
 {
+    if (eth_mgr_has_ip()) {
+        return ESP_OK;
+    }
     return wifi_mgr_force_reconnect_internal(true);
 }
 
 esp_err_t wifi_mgr_force_transport_recover(void)
 {
+    if (eth_mgr_has_ip()) {
+        return ESP_OK;
+    }
 #if !SOC_WIFI_SUPPORTED && !CONFIG_ESP_HOSTED_ENABLED
     return ESP_ERR_NOT_SUPPORTED;
 #elif CONFIG_ESP_HOSTED_ENABLED

@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 
+#include "cJSON.h"
 #include "esp_err.h"
 #include "lvgl.h"
 
@@ -32,6 +33,9 @@ typedef struct {
     int y;
     int w;
     int h;
+    /* Raw layout JSON of this widget, valid only during *_create(); lets a
+     * widget read type-specific options (e.g. alarm_panel zone lists). */
+    const cJSON *json;
 } ui_widget_def_t;
 
 typedef struct {
@@ -61,3 +65,6 @@ esp_err_t ui_widget_factory_create(const ui_widget_def_t *def, lv_obj_t *parent,
 void ui_widget_factory_apply_state(ui_widget_instance_t *instance, const ha_state_t *state);
 void ui_widget_factory_mark_unavailable(ui_widget_instance_t *instance);
 void ui_widget_factory_set_visible(ui_widget_instance_t *instance, bool visible);
+/* True when the widget consumes `entity_id` beyond its entity_id /
+ * secondary_entity_id (e.g. alarm_panel zones), so state changes reach it. */
+bool ui_widget_factory_tracks_entity(const ui_widget_instance_t *instance, const char *entity_id);

@@ -13,6 +13,12 @@ const DEFAULT_SLIDER_DIRECTION = "auto";
 const DEFAULT_BUTTON_MODE = "auto";
 const DEFAULT_BUTTON_ACCENT_COLOR = "#6fe8ff";
 const DEFAULT_SLIDER_ACCENT_COLOR = "#6fe8ff";
+const DEFAULT_ALARM_LOG_HOURS = 24;
+const ALARM_MAX_ZONES = 16;
+const ALARM_MAX_ACTIONS = 8;
+const ALARM_ZONE_DOMAINS = ["binary_sensor", "sensor"];
+const ALARM_ACTION_DOMAINS = ["switch", "button", "input_boolean"];
+
 const DEFAULT_GRAPH_LINE_COLOR = "#6fe8ff";
 const DEFAULT_GRAPH_TIME_WINDOW_MIN = 120;
 const GRAPH_POINTS_MIN = 16;
@@ -148,6 +154,17 @@ const ENTITY_PICKER_CONFIGS = {
     widgetFallback: "Media Player tile",
     itemsFallback: "media players",
   },
+  alarm_panel: {
+    domain: "alarm_control_panel",
+    titleKey: "entity_picker.title_alarm",
+    blankKey: "entity_picker.blank_alarm",
+    widgetKey: "entity_picker.widget_alarm",
+    itemsKey: "entity_picker.items_alarm",
+    titleFallback: "Choose Alarm Panel",
+    blankFallback: "Blank Alarm Panel Tile",
+    widgetFallback: "Alarm Panel tile",
+    itemsFallback: "alarm panels",
+  },
   roborock_tile: {
     domain: "vacuum",
     titleKey: "entity_picker.title_roborock",
@@ -269,6 +286,16 @@ const WEB_I18N_BUILTIN = {
     "layout.widgets.add_todo": "+ Todo List",
     "layout.widgets.add_media_player": "+ Media Player",
     "layout.widgets.add_roborock": "+ Roborock",
+    "layout.widgets.add_alarm_panel": "+ Alarm Panel",
+    "entity_picker.title_alarm": "Choose Alarm Panel",
+    "entity_picker.blank_alarm": "Blank Alarm Panel Tile",
+    "entity_picker.widget_alarm": "Alarm Panel tile",
+    "entity_picker.items_alarm": "alarm panels",
+    "layout.inspector.secondary_entity_alarm": "Keypad text sensor (optional)",
+    "layout.inspector.alarm_zones": "Zones (one per line: entity_id | name)",
+    "layout.inspector.alarm_actions": "Controls (switch = toggle, button = hold 2 s)",
+    "layout.inspector.alarm_log_hours": "History window (hours)",
+    "layout.status.alarm_lines_skipped": "Skipped invalid alarm lines: {lines}",
     "layout.widgets.quick_setup": "Quick Setup",
     "layout.widgets.delete": "Delete Widget",
     "layout.widgets.confirm_delete": "Delete widget \"{name}\"?",
@@ -596,6 +623,16 @@ const WEB_I18N_BUILTIN = {
     "layout.widgets.add_todo": "+ Todo Liste",
     "layout.widgets.add_media_player": "+ Media Player",
     "layout.widgets.add_roborock": "+ Roborock",
+    "layout.widgets.add_alarm_panel": "+ Alarmanlage",
+    "entity_picker.title_alarm": "Alarmanlage waehlen",
+    "entity_picker.blank_alarm": "Leere Alarmanlagen-Kachel",
+    "entity_picker.widget_alarm": "Alarmanlagen-Kachel",
+    "entity_picker.items_alarm": "Alarmanlagen",
+    "layout.inspector.secondary_entity_alarm": "Tastenfeld-Textsensor (optional)",
+    "layout.inspector.alarm_zones": "Zonen (eine pro Zeile: entity_id | Name)",
+    "layout.inspector.alarm_actions": "Steuerung (switch = umschalten, button = 2 s halten)",
+    "layout.inspector.alarm_log_hours": "Verlauf (Stunden)",
+    "layout.status.alarm_lines_skipped": "Ungueltige Alarm-Zeilen ignoriert: {lines}",
     "layout.widgets.quick_setup": "Quick Setup",
     "layout.widgets.delete": "Widget loeschen",
     "layout.widgets.confirm_delete": "Widget \"{name}\" wirklich loeschen?",
@@ -1358,6 +1395,10 @@ function widgetSizeLimits(type) {
       return compact
         ? { minW: 220, minH: 190, maxW: CANVAS_WIDTH, maxH: CANVAS_HEIGHT }
         : { minW: 240, minH: 220, maxW: CANVAS_WIDTH, maxH: CANVAS_HEIGHT };
+    case "alarm_panel":
+      return compact
+        ? { minW: 160, minH: 120, maxW: CANVAS_WIDTH, maxH: CANVAS_HEIGHT }
+        : { minW: 200, minH: 150, maxW: CANVAS_WIDTH, maxH: CANVAS_HEIGHT };
     default:
       return fallback;
   }
@@ -1548,6 +1589,11 @@ const el = {
   heatingOptions: document.getElementById("heatingOptions"),
   fHeatingStyleVariant: document.getElementById("fHeatingStyleVariant"),
   fHeatingArcOpening: document.getElementById("fHeatingArcOpening"),
+  alarmOptions: document.getElementById("alarmOptions"),
+  fAlarmZones: document.getElementById("fAlarmZones"),
+  fAlarmActions: document.getElementById("fAlarmActions"),
+  fAlarmLogHours: document.getElementById("fAlarmLogHours"),
+  addAlarmPanelBtn: document.getElementById("addAlarmPanelBtn"),
   fHeatingArcOpeningWrap: document.getElementById("fHeatingArcOpeningWrap"),
   fX: document.getElementById("fX"),
   fY: document.getElementById("fY"),
@@ -2179,6 +2225,10 @@ function applyWebTranslations() {
   setTextById("addTodoListBtn", "layout.widgets.add_todo");
   setTextById("addMediaPlayerBtn", "layout.widgets.add_media_player");
   setTextById("addRoborockTileBtn", "layout.widgets.add_roborock");
+  setTextById("addAlarmPanelBtn", "layout.widgets.add_alarm_panel");
+  setTextById("fAlarmZonesLabel", "layout.inspector.alarm_zones");
+  setTextById("fAlarmActionsLabel", "layout.inspector.alarm_actions");
+  setTextById("fAlarmLogHoursLabel", "layout.inspector.alarm_log_hours");
   setTextById("deleteWidgetBtn", "layout.widgets.delete");
   setTextById("lightEntityPickerTitle", "entity_picker.title");
   setTextById("lightEntityPickerRefreshBtn", "entity_picker.refresh");
@@ -3383,6 +3433,7 @@ function allowedEntityDomainsForWidgetType(
   if (type === "todo_list") return ["todo"];
   if (type === "media_player") return ["media_player"];
   if (type === "roborock_tile") return ["vacuum"];
+  if (type === "alarm_panel") return ["alarm_control_panel"];
   if (type === "slider") {
     const normalized = normalizeSliderEntityDomain(sliderDomain);
     if (normalized === "auto") {
@@ -3410,6 +3461,16 @@ function secondaryEntityConfigForWidgetType(type) {
       optional: false,
       labelKey: "layout.inspector.secondary_entity",
       labelFallback: "Actual entity (sensor)",
+      invalidStatusKey: "layout.status.secondary_sensor_required",
+    };
+  }
+  if (type === "alarm_panel") {
+    return {
+      enabled: true,
+      domain: "sensor",
+      optional: true,
+      labelKey: "layout.inspector.secondary_entity_alarm",
+      labelFallback: "Keypad text sensor (optional)",
       invalidStatusKey: "layout.status.secondary_sensor_required",
     };
   }
@@ -4924,6 +4985,9 @@ function renderInspector() {
     if (el.heatingOptions) {
       el.heatingOptions.classList.add("hidden");
     }
+    if (el.alarmOptions) {
+      el.alarmOptions.classList.add("hidden");
+    }
     if (el.fHeatingStyleVariant) {
       el.fHeatingStyleVariant.value = "default";
     }
@@ -4960,6 +5024,15 @@ function renderInspector() {
   }
   if (el.heatingOptions) {
     el.heatingOptions.classList.toggle("hidden", !isHeating);
+  }
+  const isAlarm = widget.type === "alarm_panel";
+  if (el.alarmOptions) {
+    el.alarmOptions.classList.toggle("hidden", !isAlarm);
+  }
+  if (isAlarm) {
+    if (el.fAlarmZones) el.fAlarmZones.value = formatAlarmEntityLines(widget.alarm_zones);
+    if (el.fAlarmActions) el.fAlarmActions.value = formatAlarmEntityLines(widget.alarm_actions);
+    if (el.fAlarmLogHours) el.fAlarmLogHours.value = String(normalizeAlarmLogHours(widget.alarm_log_hours));
   }
   if (isButton) {
     const accent = normalizeHexColor(widget.button_accent_color, DEFAULT_BUTTON_ACCENT_COLOR);
@@ -5177,6 +5250,41 @@ function applyEnergyPageConfig(options = {}) {
   return true;
 }
 
+function normalizeAlarmLogHours(value) {
+  const hours = Math.round(Number(value));
+  if (!Number.isFinite(hours) || hours < 1) return DEFAULT_ALARM_LOG_HOURS;
+  return Math.min(hours, 168);
+}
+
+function formatAlarmEntityLines(items) {
+  if (!Array.isArray(items)) return "";
+  return items
+    .filter((item) => item && typeof item.entity_id === "string")
+    .map((item) => (item.name ? `${item.entity_id} | ${item.name}` : item.entity_id))
+    .join("\n");
+}
+
+/* One entry per line: "entity_id | Friendly name" (name optional). */
+function parseAlarmEntityLines(text, domains, maxItems) {
+  const items = [];
+  const rejected = [];
+  for (const rawLine of String(text || "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const sep = line.indexOf("|");
+    const entityId = (sep >= 0 ? line.slice(0, sep) : line).trim().toLowerCase();
+    const name = sep >= 0 ? line.slice(sep + 1).trim().slice(0, 47) : "";
+    const domain = entityId.split(".")[0];
+    const valid = /^[a-z0-9_]+\.[a-z0-9_]+$/.test(entityId) && domains.includes(domain);
+    if (!valid || items.length >= maxItems || items.some((item) => item.entity_id === entityId)) {
+      rejected.push(entityId || line);
+      continue;
+    }
+    items.push(name ? { entity_id: entityId, name } : { entity_id: entityId });
+  }
+  return { items, rejected };
+}
+
 function addWidget(type, options = {}) {
   const page = selectedPage();
   if (!page) return;
@@ -5191,6 +5299,7 @@ function addWidget(type, options = {}) {
   const compact = isCompactCanvas();
   const defaultW = compact
     ? type === "weather_3day" ? 420
+      : type === "alarm_panel" ? 220
       : type === "todo_list" ? 300
       : type === "media_player" ? 300
       : type === "roborock_tile" ? 460
@@ -5199,6 +5308,7 @@ function addWidget(type, options = {}) {
       : type === "heating_tile" ? 150
       : 180
     : type === "weather_3day" ? 360
+      : type === "alarm_panel" ? 300
       : type === "todo_list" ? 360
       : type === "media_player" ? 360
       : type === "roborock_tile" ? 360
@@ -5206,6 +5316,7 @@ function addWidget(type, options = {}) {
       : 220;
   const defaultH = compact
     ? type === "weather_3day" ? 240
+      : type === "alarm_panel" ? 160
       : type === "todo_list" ? 220
       : type === "media_player" ? 220
       : type === "roborock_tile" ? 300
@@ -5214,12 +5325,16 @@ function addWidget(type, options = {}) {
       : type === "heating_tile" ? 150
       : 110
     : type === "weather_3day" ? 260
+      : type === "alarm_panel" ? 200
       : type === "todo_list" ? 360
       : type === "media_player" ? 280
       : type === "roborock_tile" ? 300
       : (type === "light_tile" || type === "heating_tile" || type === "weather_tile" || type === "empty_tile") ? 260
       : 120;
-  const rect = clampRectToCanvas({ x: 20, y: 20, w: defaultW, h: defaultH }, type);
+  /* The alarm panel is a full page (keypad, zones, history), so it starts at canvas size. */
+  const rect = type === "alarm_panel"
+    ? clampRectToCanvas({ x: 0, y: 0, w: CANVAS_WIDTH, h: CANVAS_HEIGHT }, type)
+    : clampRectToCanvas({ x: 20, y: 20, w: defaultW, h: defaultH }, type);
 
   const widget = {
     id,
@@ -5241,6 +5356,11 @@ function addWidget(type, options = {}) {
   if (type === "graph") {
     widget.graph_line_color = DEFAULT_GRAPH_LINE_COLOR;
     widget.graph_time_window_min = DEFAULT_GRAPH_TIME_WINDOW_MIN;
+  }
+  if (type === "alarm_panel") {
+    widget.alarm_zones = [];
+    widget.alarm_actions = [];
+    widget.alarm_log_hours = DEFAULT_ALARM_LOG_HOURS;
   }
 
   page.widgets.push(widget);
@@ -5349,6 +5469,21 @@ function applyInspector(options = {}) {
     delete widget.graph_point_count;
     delete widget.graph_display_mode;
     delete widget.graph_bar_bucket_min;
+  }
+  if (widgetType === "alarm_panel") {
+    const zones = parseAlarmEntityLines(el.fAlarmZones?.value, ALARM_ZONE_DOMAINS, ALARM_MAX_ZONES);
+    const actions = parseAlarmEntityLines(el.fAlarmActions?.value, ALARM_ACTION_DOMAINS, ALARM_MAX_ACTIONS);
+    widget.alarm_zones = zones.items;
+    widget.alarm_actions = actions.items;
+    widget.alarm_log_hours = normalizeAlarmLogHours(el.fAlarmLogHours?.value);
+    const rejected = zones.rejected.concat(actions.rejected);
+    if (rejected.length && !softEntityValidation) {
+      setStatus(t("layout.status.alarm_lines_skipped", { lines: rejected.join(", ") }), true);
+    }
+  } else {
+    delete widget.alarm_zones;
+    delete widget.alarm_actions;
+    delete widget.alarm_log_hours;
   }
   if (widgetType === "heating_tile") {
     const variant = el.fHeatingStyleVariant?.value === "arc_semi" ? "arc_semi" : "default";
@@ -5495,6 +5630,9 @@ function bindUi() {
   }
   if (el.addMediaPlayerBtn) {
     el.addMediaPlayerBtn.onclick = () => openLightEntityPicker("media_player");
+  }
+  if (el.addAlarmPanelBtn) {
+    el.addAlarmPanelBtn.onclick = () => openLightEntityPicker("alarm_panel");
   }
   if (el.addRoborockTileBtn) {
     el.addRoborockTileBtn.onclick = () => openLightEntityPicker("roborock_tile");
@@ -5751,6 +5889,9 @@ function bindUi() {
   bindInspectorAutoApply(el.fGraphBarBucketMin, ["change"], { refreshInspector: true, softEntityValidation: true });
   bindInspectorAutoApply(el.fHeatingStyleVariant, ["change"], { refreshInspector: true, softEntityValidation: true });
   bindInspectorAutoApply(el.fHeatingArcOpening, ["change"], { refreshInspector: true, softEntityValidation: true });
+  bindInspectorAutoApply(el.fAlarmZones, ["change"], { refreshInspector: true });
+  bindInspectorAutoApply(el.fAlarmActions, ["change"], { refreshInspector: true });
+  bindInspectorAutoApply(el.fAlarmLogHours, ["change"], { refreshInspector: true, softEntityValidation: true });
   bindInspectorAutoApply(el.fX, ["change"], { refreshInspector: true, softEntityValidation: true });
   bindInspectorAutoApply(el.fY, ["change"], { refreshInspector: true, softEntityValidation: true });
   bindInspectorAutoApply(el.fW, ["change"], { refreshInspector: true, softEntityValidation: true });

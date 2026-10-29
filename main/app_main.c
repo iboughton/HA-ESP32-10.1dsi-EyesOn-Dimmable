@@ -23,6 +23,7 @@
 #include "ha/ha_energy_model.h"
 #include "ha/ha_model.h"
 #include "layout/layout_store.h"
+#include "net/eth_mgr.h"
 #include "net/time_sync.h"
 #include "net/wifi_mgr.h"
 #include "settings/runtime_settings.h"
@@ -77,7 +78,8 @@ static void app_show_ha_setup_screen(void)
 {
     char sta_ip[16] = {0};
     char url_line[64] = {0};
-    if (wifi_mgr_get_sta_ip(sta_ip, sizeof(sta_ip)) == ESP_OK && sta_ip[0] != '\0') {
+    if ((eth_mgr_get_ip(sta_ip, sizeof(sta_ip)) == ESP_OK ||
+         wifi_mgr_get_sta_ip(sta_ip, sizeof(sta_ip)) == ESP_OK) && sta_ip[0] != '\0') {
         snprintf(url_line, sizeof(url_line), "http://%s", sta_ip);
     } else {
         snprintf(url_line, sizeof(url_line), "http://<panel-ip>");
@@ -87,7 +89,8 @@ static void app_show_ha_setup_screen(void)
     ui_boot_splash_set_status_layout(true, 520, 0);
     ui_boot_splash_clear_status();
     ui_boot_splash_set_progress(100);
-    ui_boot_splash_set_status(ui_i18n_get("boot.wifi_connected", "Wi-Fi connected"));
+    ui_boot_splash_set_status(eth_mgr_has_ip() ? "Ethernet connected"
+                                               : ui_i18n_get("boot.wifi_connected", "Wi-Fi connected"));
     ui_boot_splash_set_status(ui_i18n_get("boot.ha_credentials_missing", "HA credentials missing"));
     ui_boot_splash_set_status(ui_i18n_get("boot.open_editor", "Open BETTA Editor:"));
     ui_boot_splash_set_status(url_line);
@@ -153,87 +156,136 @@ void app_main(void)
     (void)ui_i18n_init(s_runtime_settings.ui_language);
     (void)time_sync_set_timezone(s_runtime_settings.time_tz);
     ESP_ERROR_CHECK(display_init());
-    (void)ui_boot_splash_show();
+    ESP_LOGI(TAG_APP, "Boot stage: showing startup splash");
+    esp_err_t splash_err = ui_boot_splash_show();
+    ESP_LOGI(TAG_APP, "Boot stage: startup splash returned (%s)", esp_err_to_name(splash_err));
 
-    ui_boot_splash_set_status(ui_i18n_get("boot.initializing_wifi", "Initializing Wi-Fi"));
+    ui_boot_splash_replace_status(ui_i18n_get("boot.initializing_wifi", "Initializing Wi-Fi"));
 
     bool has_wifi_credentials = false;
-    bool wifi_ready = false;
+    bool network_ready = false;
+
+#if defined(CONFIG_APP_PANEL_VARIANT_10INCH_1280) && CONFIG_APP_PANEL_VARIANT_10INCH_1280
+    ui_boot_splash_replace_status("Initializing Ethernet");
+    ESP_LOGI(TAG_APP, "Boot stage: initializing Ethernet (IP101GRI RMII)");
+    /* A missing cable shows up as no link, so keep that wait short; once the link is
+     * up, Ethernet is committed and Wi-Fi is never started, so allow DHCP plenty of time. */
+    esp_err_t eth_err = eth_mgr_init();
+    if (eth_err == ESP_OK) {
+        eth_err = eth_mgr_wait_for_link(APP_ETH_LINK_WAIT_MS);
+        if (eth_err != ESP_OK) {
+            ESP_LOGW(TAG_APP, "Ethernet: no link after %d ms (cable unplugged?)", APP_ETH_LINK_WAIT_MS);
+        }
+    }
+    if (eth_err == ESP_OK) {
+        ui_boot_splash_replace_status("Ethernet: waiting for DHCP");
+        eth_err = eth_mgr_wait_for_ip(APP_ETH_DHCP_WAIT_MS);
+        if (eth_err != ESP_OK) {
+            ESP_LOGW(TAG_APP, "Ethernet: link up but no DHCP lease after %d ms", APP_ETH_DHCP_WAIT_MS);
+        }
+    }
+    if (eth_err == ESP_OK) {
+        network_ready = true;
+        ui_boot_splash_replace_status("Ethernet connected");
+        ESP_LOGI(TAG_APP, "Boot stage: Ethernet obtained an IP address; Wi-Fi stays off");
+        time_sync_start(s_runtime_settings.ntp_server);
+        ESP_LOGI(TAG_TIME, "Boot stage: waiting for network time");
+        time_sync_wait_for_sync(8000);
+    } else {
+        ESP_LOGW(TAG_APP, "Ethernet unavailable at boot (%s); trying Wi-Fi", esp_err_to_name(eth_err));
+    }
+#endif
 
 #if SOC_WIFI_SUPPORTED || CONFIG_ESP_HOSTED_ENABLED
-    has_wifi_credentials = runtime_settings_has_wifi(&s_runtime_settings);
-    if (has_wifi_credentials) {
-        wifi_mgr_config_t wifi_cfg = {
-            .ssid = s_runtime_settings.wifi_ssid,
-            .password = s_runtime_settings.wifi_password,
-            .country_code = s_runtime_settings.wifi_country_code,
-            .bssid = s_runtime_settings.wifi_bssid,
-            .wait_for_ip = APP_WIFI_WAIT_FOR_IP,
-            .connect_timeout_ms = APP_WIFI_CONNECT_TIMEOUT_MS,
-            .max_retries = APP_WIFI_MAX_RETRIES,
-        };
-        esp_err_t wifi_err = wifi_mgr_init(&wifi_cfg);
-        if (wifi_err != ESP_OK) {
-            ESP_LOGW(TAG_WIFI, "Wi-Fi init failed: %s", esp_err_to_name(wifi_err));
-            ui_boot_splash_set_status(ui_i18n_get("boot.wifi_connect_failed", "Wi-Fi connect failed"));
+    if (!network_ready) {
+        has_wifi_credentials = runtime_settings_has_wifi(&s_runtime_settings);
+        if (has_wifi_credentials) {
+            ESP_LOGI(TAG_WIFI, "Boot stage: initializing station Wi-Fi");
+            ui_boot_splash_replace_status(ui_i18n_get("boot.initializing_wifi", "Initializing Wi-Fi"));
+            wifi_mgr_config_t wifi_cfg = {
+                .ssid = s_runtime_settings.wifi_ssid,
+                .password = s_runtime_settings.wifi_password,
+                .country_code = s_runtime_settings.wifi_country_code,
+                .bssid = s_runtime_settings.wifi_bssid,
+                .wait_for_ip = APP_WIFI_WAIT_FOR_IP,
+                .connect_timeout_ms = APP_WIFI_CONNECT_TIMEOUT_MS,
+                .max_retries = APP_WIFI_MAX_RETRIES,
+            };
+            esp_err_t wifi_err = wifi_mgr_init(&wifi_cfg);
+            ESP_LOGI(TAG_WIFI, "Boot stage: station Wi-Fi init finished (%s)", esp_err_to_name(wifi_err));
+            if (wifi_err != ESP_OK) {
+                ESP_LOGW(TAG_WIFI, "Wi-Fi init failed: %s", esp_err_to_name(wifi_err));
+                ui_boot_splash_replace_status(ui_i18n_get("boot.wifi_connect_failed", "Wi-Fi connect failed"));
+            } else {
+                network_ready = true;
+                ui_boot_splash_replace_status(ui_i18n_get("boot.wifi_connected", "Wi-Fi connected"));
+                time_sync_start(s_runtime_settings.ntp_server);
+                ESP_LOGI(TAG_TIME, "Boot stage: waiting for network time");
+                time_sync_wait_for_sync(8000);
+                ui_boot_splash_replace_status(ui_i18n_get("boot.wifi_connected", "Wi-Fi connected"));
+            }
         } else {
-            wifi_ready = true;
-            time_sync_start(s_runtime_settings.ntp_server);
-            time_sync_wait_for_sync(8000);
-            ui_boot_splash_set_status(ui_i18n_get("boot.wifi_connected", "Wi-Fi connected"));
+            ESP_LOGW(TAG_WIFI, "No Wi-Fi credentials configured, starting setup AP");
         }
-    } else {
-        ESP_LOGW(TAG_WIFI, "No Wi-Fi credentials configured, starting setup AP");
-    }
 
-    if (!wifi_ready) {
-        wifi_mgr_ap_config_t ap_cfg = {
-            .ssid = NULL,
-            .password = APP_SETUP_AP_PASSWORD,
-            .country_code = s_runtime_settings.wifi_country_code,
-            .channel = APP_SETUP_AP_CHANNEL,
-            .max_connection = APP_SETUP_AP_MAX_CONNECTIONS,
-        };
-        esp_err_t ap_err = wifi_mgr_start_setup_ap(&ap_cfg);
-        if (ap_err == ESP_OK) {
-            char ap_status[64] = {0};
-            snprintf(
-                ap_status,
-                sizeof(ap_status),
-                "%s: %s",
-                ui_i18n_get("boot.setup_ap_prefix", "Setup AP"),
-                wifi_mgr_get_setup_ap_ssid());
-            ui_boot_splash_set_status(ap_status);
-            ESP_LOGW(TAG_WIFI, "Setup AP started: %s", wifi_mgr_get_setup_ap_ssid());
-        } else {
-            ESP_LOGW(TAG_WIFI, "Failed to start setup AP: %s", esp_err_to_name(ap_err));
-            ui_boot_splash_set_status(ui_i18n_get("boot.offline_mode", "Offline mode"));
+        if (!network_ready) {
+            ui_boot_splash_replace_status(ui_i18n_get("boot.initializing_wifi", "Initializing Wi-Fi"));
+            ESP_LOGI(TAG_WIFI, "Boot stage: starting setup AP");
+            wifi_mgr_ap_config_t ap_cfg = {
+                .ssid = NULL,
+                .password = APP_SETUP_AP_PASSWORD,
+                .country_code = s_runtime_settings.wifi_country_code,
+                .channel = APP_SETUP_AP_CHANNEL,
+                .max_connection = APP_SETUP_AP_MAX_CONNECTIONS,
+            };
+            esp_err_t ap_err = wifi_mgr_start_setup_ap(&ap_cfg);
+            ESP_LOGI(TAG_WIFI, "Boot stage: setup AP start finished (%s)", esp_err_to_name(ap_err));
+            if (ap_err == ESP_OK) {
+                char ap_status[64] = {0};
+                snprintf(
+                    ap_status,
+                    sizeof(ap_status),
+                    "%s: %s",
+                    ui_i18n_get("boot.setup_ap_prefix", "Setup AP"),
+                    wifi_mgr_get_setup_ap_ssid());
+                ui_boot_splash_replace_status(ap_status);
+                ESP_LOGW(TAG_WIFI, "Setup AP started: %s", wifi_mgr_get_setup_ap_ssid());
+            } else {
+                ESP_LOGW(TAG_WIFI, "Failed to start setup AP: %s", esp_err_to_name(ap_err));
+                ui_boot_splash_replace_status(ui_i18n_get("boot.offline_mode", "Offline mode"));
+            }
         }
     }
 #else
-    ESP_LOGW(TAG_WIFI, "No Wi-Fi backend enabled for target %s", CONFIG_IDF_TARGET);
-    ui_boot_splash_set_status("No Wi-Fi backend");
+    if (!network_ready) {
+        ESP_LOGW(TAG_WIFI, "No Wi-Fi backend enabled for target %s", CONFIG_IDF_TARGET);
+        ui_boot_splash_set_status("No Wi-Fi backend");
+    }
 #endif
 
     boot_screen_mode_t boot_screen_mode = BOOT_SCREEN_DASHBOARD;
-    if (!wifi_ready) {
+    if (!network_ready) {
         boot_screen_mode = BOOT_SCREEN_WIFI_SETUP;
     } else if (!runtime_settings_has_ha(&s_runtime_settings)) {
         boot_screen_mode = BOOT_SCREEN_HA_SETUP;
     }
 
+    ui_boot_splash_replace_status(ui_i18n_get("boot.loading_dashboard", "Loading dashboard"));
+    ESP_LOGI(TAG_APP, "Boot stage: initializing layout store");
     ESP_ERROR_CHECK(layout_store_init());
+    ESP_LOGI(TAG_APP, "Boot stage: initializing theme store");
     ESP_ERROR_CHECK(theme_store_init());
+    ESP_LOGI(TAG_APP, "Boot stage: starting HTTP server");
     ESP_ERROR_CHECK(http_server_start());
 
     if (boot_screen_mode == BOOT_SCREEN_DASHBOARD) {
-        ui_boot_splash_set_status(ui_i18n_get("boot.initializing_touch", "Initializing touch"));
+        ui_boot_splash_replace_status(ui_i18n_get("boot.initializing_touch", "Initializing touch"));
         esp_err_t touch_err = touch_init();
         if (touch_err != ESP_OK) {
             ESP_LOGW(TAG_TOUCH, "Touch init failed, continuing without touch input: %s", esp_err_to_name(touch_err));
         }
 
-        ui_boot_splash_set_status(ui_i18n_get("boot.loading_dashboard", "Loading dashboard"));
+        ui_boot_splash_replace_status(ui_i18n_get("boot.loading_dashboard", "Loading dashboard"));
         ESP_ERROR_CHECK(ui_runtime_init());
         ESP_ERROR_CHECK(ui_runtime_reload_layout());
         ESP_ERROR_CHECK(ui_runtime_start());

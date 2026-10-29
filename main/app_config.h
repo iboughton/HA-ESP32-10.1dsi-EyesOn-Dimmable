@@ -196,6 +196,15 @@
 #define APP_WIFI_CONNECT_TIMEOUT_MS 15000
 #endif
 
+/* Ethernet (panel10): link normally comes up ~2 s after esp_eth_start; DHCP has been
+ * observed taking ~8.5 s after link on real networks. */
+#ifndef APP_ETH_LINK_WAIT_MS
+#define APP_ETH_LINK_WAIT_MS 5000
+#endif
+#ifndef APP_ETH_DHCP_WAIT_MS
+#define APP_ETH_DHCP_WAIT_MS 30000
+#endif
+
 #ifdef CONFIG_APP_WIFI_MAX_RETRIES
 #define APP_WIFI_MAX_RETRIES CONFIG_APP_WIFI_MAX_RETRIES
 #else

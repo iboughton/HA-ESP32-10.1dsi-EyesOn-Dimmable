@@ -23,3 +23,5 @@ bool display_wake_from_dim(void);
 int display_get_user_brightness(void);
 /* Changes the user brightness by delta percent, persists it and returns the new level. */
 int display_adjust_user_brightness(int delta);
+/* Records the current LVGL-side stage for lock-hang diagnostics (panel10). */
+void display_diag_mark(const char *stage) __attribute__((weak));

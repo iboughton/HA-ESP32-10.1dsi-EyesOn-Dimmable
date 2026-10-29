@@ -7,6 +7,10 @@
 # it is regenerated from this file on every configure.
 dependencies:
   idf: ">=5.5"
+  espressif/cjson:
+    version: "^1.7.19"
+  espressif/usb:
+    version: "^1.0.0"
   espressif/esp_wifi_remote:
     version: "*"
     rules:

@@ -3,12 +3,19 @@
 #
 # Panel variant overlay: 10.1" 1280x800 (Waveshare 10.1" MIPI-DSI).
 # Apply together with the common sdkconfig.defaults via
+
 #   idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.panel10" ...
 # or the CMake preset "panel10" (see CMakePresets.json).
 
 # --- Panel variant selector (drives app_config.h + display/touch init) ---
 # CONFIG_APP_PANEL_VARIANT_4INCH_720 is not set
 CONFIG_APP_PANEL_VARIANT_10INCH_1280=y
+
+# This board has 16 MB of SPI flash; keep the image header and partitions in range.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# CONFIG_ESPTOOLPY_FLASHSIZE_32MB is not set
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.panel10.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.panel10.csv"
 
 # PSRAM profile (Hex 200MHz) is shared across both variants and lives in
 # sdkconfig.defaults. This overlay only carries 10.1"-specific tuning.
@@ -22,6 +29,6 @@ CONFIG_BSP_LCD_COLOR_FORMAT_RGB565=y
 # 10.1-DSI-TOUCH-A: same JD9365 init as the 101M-8001280 panel, but its backlight
 # controller takes brightness on register 0x96 (the older panel uses 0x86).
 CONFIG_BSP_LCD_TYPE_800_1280_10_1_INCH_A=y
-CONFIG_BSP_LCD_MIPI_DSI_LANE_BITRATE_MBPS=1500
+CONFIG_BSP_LCD_MIPI_DSI_LANE_BITRATE_MBPS=1500u
 CONFIG_ESP_LCD_TOUCH_MAX_POINTS=10
 CONFIG_LV_USE_LODEPNG=y

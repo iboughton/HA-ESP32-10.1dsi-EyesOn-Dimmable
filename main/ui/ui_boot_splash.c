@@ -366,7 +366,6 @@ esp_err_t ui_boot_splash_show(void)
     s_splash.timer = lv_timer_create(splash_timer_cb, 280, NULL);
     s_splash.shown_at_ms = splash_now_ms();
 
-    lv_refr_now(NULL);
     display_unlock();
     display_note_activity();
     ESP_LOGI(TAG_UI, "Boot splash shown");
@@ -384,6 +383,23 @@ void ui_boot_splash_set_status(const char *status_text)
     if (!display_lock(50)) {
         return;
     }
+    splash_add_status_line(status_text);
+    display_unlock();
+}
+
+void ui_boot_splash_replace_status(const char *status_text)
+{
+    if (status_text == NULL || status_text[0] == '\0') {
+        return;
+    }
+    if (s_splash.root == NULL || s_splash.status == NULL) {
+        return;
+    }
+    if (!display_lock(50)) {
+        return;
+    }
+    s_splash.status_line_count = 0;
+    memset(s_splash.status_lines, 0, sizeof(s_splash.status_lines));
     splash_add_status_line(status_text);
     display_unlock();
 }
@@ -502,7 +518,6 @@ void ui_boot_splash_hide(void)
     memset(&s_splash, 0, sizeof(s_splash));
 
     lv_obj_invalidate(lv_scr_act());
-    lv_refr_now(NULL);
     display_unlock();
     display_note_activity();
     ESP_LOGI(TAG_UI, "Boot splash hidden");

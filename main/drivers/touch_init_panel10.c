@@ -11,7 +11,7 @@
 #include "esp_err.h"
 #include "esp_lcd_touch.h"
 #include "esp_log.h"
-#include "esp_lvgl_port.h"
+#include "esp_lv_adapter.h"
 #include "lvgl.h"
 
 #include "drivers/display_init.h"
@@ -59,8 +59,14 @@ static void touch_apply_display_rotation_alignment(esp_lcd_touch_handle_t handle
         return;
     }
 
-    const bool swap_xy = false;
-    const bool mirror_x = false;
+    /* esp_lvgl_adapter applies ESP_LV_ADAPTER_ROTATE_90 inside its flush bridge and
+     * leaves the LVGL display at rotation 0, so LVGL no longer rotates pointer input
+     * (lv_display_set_rotation did that under esp_lvgl_port). Map the GT911's native
+     * 800x1280 portrait coordinates onto the 1280x800 landscape canvas here instead:
+     * x' = y, y' = x_max - x (esp_lcd_touch mirrors before swapping). Verified on
+     * hardware: the GT911 axes run opposite to the panel scan direction here. */
+    const bool swap_xy = true;
+    const bool mirror_x = true;
     const bool mirror_y = false;
 
     esp_err_t err = esp_lcd_touch_set_swap_xy(handle, swap_xy);
@@ -132,7 +138,7 @@ esp_err_t touch_init(void)
 
     touch_apply_display_rotation_alignment(s_touch_handle);
 
-    const lvgl_port_touch_cfg_t touch_cfg = {
+    const esp_lv_adapter_touch_config_t touch_cfg = {
         .disp = disp,
         .handle = s_touch_handle,
         .scale = {
@@ -145,22 +151,22 @@ esp_err_t touch_init(void)
         touch_release_handle();
         return ESP_ERR_TIMEOUT;
     }
-    s_touch_indev = lvgl_port_add_touch(&touch_cfg);
+    s_touch_indev = esp_lv_adapter_register_touch(&touch_cfg);
     if (s_touch_indev != NULL) {
         lv_indev_add_event_cb(s_touch_indev, touch_activity_event_cb, LV_EVENT_PRESSED, NULL);
+        /* Touches LVGL timer state, so it must run under the LVGL lock. */
+        touch_apply_polling_tune(s_touch_indev);
     }
     display_unlock();
 
     if (s_touch_indev == NULL) {
-        ESP_LOGE(TAG_TOUCH, "lvgl_port_add_touch failed");
+        ESP_LOGE(TAG_TOUCH, "esp_lv_adapter_register_touch failed");
         touch_release_handle();
         return ESP_FAIL;
     }
 
-    touch_apply_polling_tune(s_touch_indev);
-
     s_touch_ready = true;
-    ESP_LOGI(TAG_TOUCH, "Touch initialized (esp_lvgl_port + GT911)");
+    ESP_LOGI(TAG_TOUCH, "Touch initialized (esp_lvgl_adapter + GT911)");
     return ESP_OK;
 }
 

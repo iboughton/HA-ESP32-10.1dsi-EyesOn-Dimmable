@@ -96,6 +96,7 @@ CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y
 # update_layout_completed_cb loop -> task WDT in lv_array_resize.
 # CONFIG_LV_USE_BUILTIN_MALLOC is not set
 CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_ASSERT_HANDLER_INCLUDE="assert.h"
 
 
 # Reduce peak TLS memory to avoid DMA descriptor allocation failures

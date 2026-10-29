@@ -161,6 +161,7 @@
                     <button class="dropdown-item" type="button" role="menuitem" data-add-target="addHeatingTileBtn">Heating Tile</button>
                     <button class="dropdown-item" type="button" role="menuitem" data-add-target="addMediaPlayerBtn">Media Player</button>
                     <button class="dropdown-item" type="button" role="menuitem" data-add-target="addRoborockTileBtn">Roborock</button>
+                    <button class="dropdown-item" type="button" role="menuitem" data-add-target="addAlarmPanelBtn">Alarm Panel</button>
                   </div>
                   <div class="dropdown-group">
                     <div class="dropdown-group-label">Data</div>
@@ -195,6 +196,7 @@
               <button id="addTodoListBtn" type="button">+ Todo List</button>
               <button id="addMediaPlayerBtn" type="button">+ Media Player</button>
               <button id="addRoborockTileBtn" type="button">+ Roborock</button>
+              <button id="addAlarmPanelBtn" type="button">+ Alarm Panel</button>
               <button id="deleteWidgetBtn" type="button">Delete Widget</button>
             </div>
             <ul id="widgetsList" class="list"></ul>
@@ -227,6 +229,7 @@
                     <option value="todo_list">todo_list</option>
                     <option value="media_player">media_player</option>
                     <option value="roborock_tile">roborock_tile</option>
+                    <option value="alarm_panel">alarm_panel</option>
                   </select>
                   <label id="fEntityWrap"><span id="fEntityLabel">Entity</span>
                     <input id="fEntity" type="text" list="entityOptions" />
@@ -236,6 +239,19 @@
                     <input id="fSecondaryEntity" type="text" list="sensorEntityOptions" />
                     <datalist id="sensorEntityOptions"></datalist>
                   </label>
+                  <div id="alarmOptions" class="slider-options hidden">
+                    <label><span id="fAlarmZonesLabel">Zones (one per line: entity_id | name)</span>
+                      <textarea id="fAlarmZones" rows="8" spellcheck="false"
+                        placeholder="binary_sensor.alarm_zone_1 | Front Door"></textarea>
+                    </label>
+                    <label><span id="fAlarmActionsLabel">Controls (switch = toggle, button = hold 2 s)</span>
+                      <textarea id="fAlarmActions" rows="4" spellcheck="false"
+                        placeholder="switch.alarm_panel_chime | Chime"></textarea>
+                    </label>
+                    <label><span id="fAlarmLogHoursLabel">History window (hours)</span>
+                      <input id="fAlarmLogHours" type="number" min="1" max="168" step="1" value="24" />
+                    </label>
+                  </div>
                 </div>
               </details>
 

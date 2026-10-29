@@ -54,6 +54,7 @@ idf_component_register(
         "settings/runtime_settings.c"
         "settings/i18n_store.c"
         "net/wifi_mgr.c"
+        "net/eth_mgr.c"
         "net/time_sync.c"
         "ui/ui_runtime.c"
         "ui/ui_boot_splash.c"
@@ -74,6 +75,7 @@ idf_component_register(
         "ui/widgets/w_todo.c"
         "ui/widgets/w_media_player.c"
         "ui/widgets/w_roborock.c"
+        "ui/widgets/w_alarm_panel.c"
         "ui/fonts/mdi_font_registry.c"
         "ui/theme/theme_default.c"
         "ui/theme/theme_palette.c"
@@ -108,7 +110,7 @@ idf_component_register(
         esp_app_format
         esp_lcd
         lvgl
-        json
+        cjson
         littlefs
         webui
         esp_driver_jpeg
@@ -118,6 +120,10 @@ idf_component_register(
 # panels3 (ESP32-S3) has native Wi-Fi and must not pull in the hosted stack.
 if(NOT CONFIG_APP_PANEL_VARIANT_S3_480)
     idf_component_optional_requires(PRIVATE esp_wifi_remote esp_hosted)
+endif()
+
+if(CONFIG_APP_PANEL_VARIANT_10INCH_1280)
+    idf_component_optional_requires(PRIVATE esp_eth ip101)
 endif()
 
 # panels3 has no upstream ESP-BSP package: provide a minimal local shim of

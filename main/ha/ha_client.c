@@ -31,6 +31,7 @@
 #include "ha/ha_model.h"
 #include "ha/ha_ws.h"
 #include "layout/layout_store.h"
+#include "net/eth_mgr.h"
 #include "net/wifi_mgr.h"
 #include "util/log_tags.h"
 
@@ -581,6 +582,15 @@ static bool s_ws_rx_overflow = false;
 
 static esp_err_t ha_client_force_recover_with_escalation(bool prefer_transport, const char *reason, bool *out_used_transport)
 {
+    if (eth_mgr_has_ip()) {
+        ESP_LOGW(TAG_HA_CLIENT, "Skip Wi-Fi transport recovery (%s): Ethernet is online",
+            (reason != NULL) ? reason : "unknown");
+        if (out_used_transport != NULL) {
+            *out_used_transport = false;
+        }
+        return ESP_OK;
+    }
+
     if (out_used_transport != NULL) {
         *out_used_transport = prefer_transport;
     }
@@ -1387,7 +1397,10 @@ static bool ha_client_discovery_domain_supported(const char *domain)
            strcmp(domain, "todo") == 0 ||
            strcmp(domain, "media_player") == 0 ||
            strcmp(domain, "vacuum") == 0 ||
-           strcmp(domain, "image") == 0;
+           strcmp(domain, "image") == 0 ||
+           strcmp(domain, "alarm_control_panel") == 0 ||
+           strcmp(domain, "binary_sensor") == 0 ||
+           strcmp(domain, "button") == 0;
 }
 
 static const char *ha_client_discovery_domain_or_default(const char *domain)
@@ -3804,6 +3817,21 @@ static size_t ha_client_collect_layout_entity_ids(char *entity_ids, size_t max_c
                 }
                 ha_client_collect_entity_id(widget, "entity_id", entity_ids, &count, max_count);
                 ha_client_collect_entity_id(widget, "secondary_entity_id", entity_ids, &count, max_count);
+                /* alarm_panel: zone sensors and switch/button actions live in object arrays. */
+                static const char *entity_list_keys[] = {"alarm_zones", "alarm_actions"};
+                for (size_t k = 0; k < (sizeof(entity_list_keys) / sizeof(entity_list_keys[0])); k++) {
+                    cJSON *list = cJSON_GetObjectItemCaseSensitive(widget, entity_list_keys[k]);
+                    if (!cJSON_IsArray(list)) {
+                        continue;
+                    }
+                    int list_count = cJSON_GetArraySize(list);
+                    for (int i = 0; i < list_count && count < max_count; i++) {
+                        cJSON *item = cJSON_GetArrayItem(list, i);
+                        if (cJSON_IsObject(item)) {
+                            ha_client_collect_entity_id(item, "entity_id", entity_ids, &count, max_count);
+                        }
+                    }
+                }
             }
         }
     }
@@ -8301,6 +8329,66 @@ esp_err_t ha_client_call_service(const char *domain, const char *service, const 
     return err;
 }
 
+/* Gate, register and send a request whose reply is routed to `cb`. Takes
+ * ownership of `root` (which must not yet carry an "id"). */
+static esp_err_t ha_client_send_request_with_response(
+    cJSON *root, const char *log_name, ha_client_response_cb_t cb, void *user)
+{
+    if (!ha_client_is_connected()) {
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    int64_t now_ms = ha_client_now_ms();
+    /* Gate: treat as HEAVY so we don't pile on top of weather/energy/
+     * discovery roundtrips and blow up the TLS receive path. */
+    xSemaphoreTake(s_client.mutex, portMAX_DELAY);
+    bool gate_ok = ha_client_ws_send_gate_ok_locked(HA_WS_SEND_HEAVY, now_ms);
+    xSemaphoreGive(s_client.mutex);
+    if (!gate_ok) {
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_STATE; /* caller retries later */
+    }
+
+    ha_client_mark_ws_priority_boost(now_ms);
+
+    uint32_t req_id = ha_client_next_message_id();
+    cJSON_AddNumberToObject(root, "id", (double)req_id);
+
+    bool registered = false;
+    xSemaphoreTake(s_client.mutex, portMAX_DELAY);
+    registered = ha_client_pending_response_register_locked(req_id, cb, user, ha_client_now_ms());
+    if (registered) {
+        s_client.call_response_req_inflight = true;
+        s_client.call_response_req_id = req_id;
+    }
+    xSemaphoreGive(s_client.mutex);
+    if (!registered) {
+        cJSON_Delete(root);
+        ESP_LOGW(TAG_HA_CLIENT, "%s: no free response slot", log_name);
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_err_t err = ha_client_send_json(root);
+    cJSON_Delete(root);
+    if (err != ESP_OK) {
+        /* Clean up slot if send failed so the caller's cb is not leaked. */
+        ha_client_response_cb_t evicted_cb = NULL;
+        void *evicted_user = NULL;
+        xSemaphoreTake(s_client.mutex, portMAX_DELAY);
+        ha_client_pending_response_take_locked(req_id, &evicted_cb, &evicted_user);
+        if (s_client.call_response_req_id == req_id) {
+            s_client.call_response_req_inflight = false;
+            s_client.call_response_req_id = 0;
+        }
+        xSemaphoreGive(s_client.mutex);
+        if (evicted_cb != NULL) {
+            evicted_cb(false, NULL, evicted_user);
+        }
+    }
+    return err;
+}
+
 esp_err_t ha_client_call_service_with_response(
     const char *domain,
     const char *service,
@@ -8316,24 +8404,10 @@ esp_err_t ha_client_call_service_with_response(
         return ESP_ERR_INVALID_STATE;
     }
 
-    int64_t now_ms = ha_client_now_ms();
-    /* Gate: treat as HEAVY so we don't pile on top of weather/energy/
-     * discovery roundtrips and blow up the TLS receive path. */
-    xSemaphoreTake(s_client.mutex, portMAX_DELAY);
-    bool gate_ok = ha_client_ws_send_gate_ok_locked(HA_WS_SEND_HEAVY, now_ms);
-    xSemaphoreGive(s_client.mutex);
-    if (!gate_ok) {
-        return ESP_ERR_INVALID_STATE; /* caller retries later */
-    }
-
-    ha_client_mark_ws_priority_boost(now_ms);
-
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    uint32_t req_id = ha_client_next_message_id();
-    cJSON_AddNumberToObject(root, "id", (double)req_id);
     cJSON_AddStringToObject(root, "type", "call_service");
     cJSON_AddStringToObject(root, "domain", domain);
     cJSON_AddStringToObject(root, "service", service);
@@ -8358,38 +8432,29 @@ esp_err_t ha_client_call_service_with_response(
         }
     }
 
-    bool registered = false;
-    xSemaphoreTake(s_client.mutex, portMAX_DELAY);
-    registered = ha_client_pending_response_register_locked(req_id, cb, user, ha_client_now_ms());
-    if (registered) {
-        s_client.call_response_req_inflight = true;
-        s_client.call_response_req_id = req_id;
+    return ha_client_send_request_with_response(root, "call_service_with_response", cb, user);
+}
+
+esp_err_t ha_client_send_command_with_response(
+    const char *type, cJSON *fields, ha_client_response_cb_t cb, void *user)
+{
+    if (type == NULL || type[0] == '\0' || cb == NULL) {
+        cJSON_Delete(fields);
+        return ESP_ERR_INVALID_ARG;
     }
-    xSemaphoreGive(s_client.mutex);
-    if (!registered) {
-        cJSON_Delete(root);
-        ESP_LOGW(TAG_HA_CLIENT, "call_service_with_response: no free response slot");
-        return ESP_ERR_NO_MEM;
+    if (fields != NULL && !cJSON_IsObject(fields)) {
+        cJSON_Delete(fields);
+        return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t err = ha_client_send_json(root);
-    cJSON_Delete(root);
-    if (err != ESP_OK) {
-        /* Clean up slot if send failed so the caller's cb is not leaked. */
-        ha_client_response_cb_t evicted_cb = NULL;
-        void *evicted_user = NULL;
-        xSemaphoreTake(s_client.mutex, portMAX_DELAY);
-        ha_client_pending_response_take_locked(req_id, &evicted_cb, &evicted_user);
-        if (s_client.call_response_req_id == req_id) {
-            s_client.call_response_req_inflight = false;
-            s_client.call_response_req_id = 0;
-        }
-        xSemaphoreGive(s_client.mutex);
-        if (evicted_cb != NULL) {
-            evicted_cb(false, NULL, evicted_user);
-        }
+    cJSON *root = (fields != NULL) ? fields : cJSON_CreateObject();
+    if (root == NULL) {
+        return ESP_ERR_NO_MEM;
     }
-    return err;
+    cJSON_DeleteItemFromObjectCaseSensitive(root, "id");
+    cJSON_DeleteItemFromObjectCaseSensitive(root, "type");
+    cJSON_AddStringToObject(root, "type", type);
+    return ha_client_send_request_with_response(root, type, cb, user);
 }
 
 void ha_client_cancel_pending_responses_for_user(void *user)

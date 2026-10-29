@@ -13,6 +13,8 @@
 # - GT911 touch via I2C (same as P4 panels) — same component.
 dependencies:
   idf: ">=5.5"
+  espressif/cjson:
+    version: "^1.7.19"
   lvgl/lvgl:
     version: "^9"
   espressif/esp_lvgl_port:

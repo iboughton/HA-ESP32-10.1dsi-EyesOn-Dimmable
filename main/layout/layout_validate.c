@@ -91,7 +91,8 @@ static bool is_supported_widget_type(const char *type)
            (strcmp(type, "graph") == 0) || (strcmp(type, "empty_tile") == 0) || (strcmp(type, "light_tile") == 0) ||
            (strcmp(type, "heating_tile") == 0) || (strcmp(type, "weather_tile") == 0) ||
            (strcmp(type, "weather_3day") == 0) || (strcmp(type, "todo_list") == 0) ||
-           (strcmp(type, "media_player") == 0) || (strcmp(type, "roborock_tile") == 0);
+           (strcmp(type, "media_player") == 0) || (strcmp(type, "roborock_tile") == 0) ||
+           (strcmp(type, "alarm_panel") == 0);
 }
 
 static bool is_supported_page_type(const char *type)
@@ -235,6 +236,16 @@ static widget_size_limits_t widget_size_limits_for_type(const char *type)
 #endif
         limits.max_w = APP_CONTENT_BOX_WIDTH;
         limits.max_h = APP_CONTENT_BOX_HEIGHT;
+    } else if (strcmp(type, "alarm_panel") == 0) {
+#if defined(CONFIG_APP_PANEL_VARIANT_S3_480)
+        limits.min_w = 160;
+        limits.min_h = 120;
+#else
+        limits.min_w = 200;
+        limits.min_h = 150;
+#endif
+        limits.max_w = APP_CONTENT_BOX_WIDTH;
+        limits.max_h = APP_CONTENT_BOX_HEIGHT;
     }
 
     if (limits.max_w > APP_CONTENT_BOX_WIDTH) {
@@ -271,6 +282,9 @@ static const char *required_domain_for_widget_type(const char *type)
     }
     if (strcmp(type, "roborock_tile") == 0) {
         return "vacuum";
+    }
+    if (strcmp(type, "alarm_panel") == 0) {
+        return "alarm_control_panel";
     }
     return NULL;
 }
@@ -465,6 +479,68 @@ void layout_validation_add(layout_validation_result_t *result, const char *msg)
     result->count++;
 }
 
+#define ALARM_PANEL_MAX_ZONES 16
+#define ALARM_PANEL_MAX_ACTIONS 8
+
+/* alarm_zones / alarm_actions: arrays of {"entity_id": "...", "name": "..."}. */
+static void validate_alarm_entity_list(cJSON *widget, const char *widget_id, const char *key, int max_items,
+    const char *const *domains, size_t domain_count, layout_validation_result_t *result)
+{
+    char msg[128];
+    cJSON *list = cJSON_GetObjectItemCaseSensitive(widget, key);
+    if (list == NULL) {
+        return;
+    }
+    if (!cJSON_IsArray(list)) {
+        snprintf(msg, sizeof(msg), "widget %s: %s must be an array", widget_id, key);
+        layout_validation_add(result, msg);
+        return;
+    }
+    int count = cJSON_GetArraySize(list);
+    if (count > max_items) {
+        snprintf(msg, sizeof(msg), "widget %s: %s allows at most %d entries", widget_id, key, max_items);
+        layout_validation_add(result, msg);
+    }
+    for (int i = 0; i < count; i++) {
+        cJSON *item = cJSON_GetArrayItem(list, i);
+        cJSON *entity = cJSON_IsObject(item) ? cJSON_GetObjectItemCaseSensitive(item, "entity_id") : NULL;
+        bool domain_ok = false;
+        if (cJSON_IsString(entity) && entity->valuestring != NULL && is_valid_entity_id(entity->valuestring)) {
+            for (size_t d = 0; d < domain_count && !domain_ok; d++) {
+                domain_ok = entity_in_domain(entity->valuestring, domains[d]);
+            }
+        }
+        if (!domain_ok) {
+            snprintf(msg, sizeof(msg), "widget %s: %s[%d] needs a valid %s entity_id", widget_id, key, i, domains[0]);
+            layout_validation_add(result, msg);
+        }
+    }
+}
+
+static void validate_alarm_panel_widget(cJSON *widget, const char *widget_id, layout_validation_result_t *result)
+{
+    char msg[128];
+    cJSON *secondary = cJSON_GetObjectItemCaseSensitive(widget, "secondary_entity_id");
+    if (cJSON_IsString(secondary) && secondary->valuestring != NULL && secondary->valuestring[0] != '\0' &&
+        (!is_valid_entity_id(secondary->valuestring) || !entity_in_domain(secondary->valuestring, "sensor"))) {
+        snprintf(msg, sizeof(msg), "widget %s: secondary_entity_id must be sensor.*", widget_id);
+        layout_validation_add(result, msg);
+    }
+
+    static const char *const zone_domains[] = {"binary_sensor", "sensor"};
+    static const char *const action_domains[] = {"switch", "button", "input_boolean"};
+    validate_alarm_entity_list(widget, widget_id, "alarm_zones", ALARM_PANEL_MAX_ZONES,
+        zone_domains, sizeof(zone_domains) / sizeof(zone_domains[0]), result);
+    validate_alarm_entity_list(widget, widget_id, "alarm_actions", ALARM_PANEL_MAX_ACTIONS,
+        action_domains, sizeof(action_domains) / sizeof(action_domains[0]), result);
+
+    cJSON *log_hours = cJSON_GetObjectItemCaseSensitive(widget, "alarm_log_hours");
+    if (log_hours != NULL && (!cJSON_IsNumber(log_hours) || log_hours->valueint < 1 || log_hours->valueint > 168)) {
+        snprintf(msg, sizeof(msg), "widget %s: alarm_log_hours must be 1..168", widget_id);
+        layout_validation_add(result, msg);
+    }
+}
+
 static bool validate_widget(cJSON *widget, const char *known_widget_ids, size_t known_ids_len,
     size_t page_index, size_t widget_index, layout_validation_result_t *result)
 {
@@ -580,6 +656,10 @@ static bool validate_widget(cJSON *widget, const char *known_widget_ids, size_t 
                 layout_validation_add(result, msg);
             }
         }
+    }
+
+    if (cJSON_IsString(type) && type->valuestring != NULL && strcmp(type->valuestring, "alarm_panel") == 0) {
+        validate_alarm_panel_widget(widget, cJSON_IsString(id) ? id->valuestring : "?", result);
     }
 
     if (cJSON_IsString(type) && type->valuestring != NULL && strcmp(type->valuestring, "slider") == 0) {

@@ -42,6 +42,13 @@ esp_err_t ha_client_call_service_with_response(
     const char *json_service_data,
     ha_client_response_cb_t cb,
     void *user);
+/* Send an arbitrary HA WebSocket command (e.g. "logbook/get_events") and
+ * deliver its `result` via `cb`, with the same threading rules and heavy-send
+ * gating as ha_client_call_service_with_response(). `fields` holds the
+ * command's extra keys (may be NULL); ownership passes to this function in
+ * every case. Returns ESP_ERR_INVALID_STATE when disconnected or gated. */
+esp_err_t ha_client_send_command_with_response(
+    const char *type, cJSON *fields, ha_client_response_cb_t cb, void *user);
 /* Cancel any pending response callbacks that match the given `user` pointer.
  * Must be called by any caller of ha_client_call_service_with_response()
  * before the object referenced by `user` is destroyed, to prevent the WS

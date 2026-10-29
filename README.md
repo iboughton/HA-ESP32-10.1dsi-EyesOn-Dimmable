@@ -12,6 +12,20 @@ A runtime-configurable Home Assistant wall panel for ESP32-P4 and ESP32-S3 touch
 </p>
 ---
 
+## Changes in this fork
+
+This is a modified version of [BETTA HA Panel](https://github.com/cptkirki/BETTA-HA-PANEL) by Cpt_Kirk, shared under the same [FNCL v1.1](LICENSE) license. Changes from the original:
+
+- **Auto-dim:** the backlight dims to 10% after 2 minutes without a touch.
+- **Wake-touch guard:** the touch that wakes a dimmed screen only restores the brightness; it is not passed on to the button or widget underneath.
+- **Brightness buttons:** − and + buttons at the bottom right of the navigation bar change the brightness in 10% steps (10–100%). The level is saved and restored after a reboot and when the screen wakes.
+- **10.1-DSI-TOUCH-A support (`panel10`):** the build now targets the Waveshare 10.1-DSI-TOUCH-A panel. Its backlight controller only accepts brightness commands on register `0x96`; the original setting wrote `0x86`, which this panel ignores, so brightness could not be changed.
+- **Code structure:** the dim timer moved out of the three panel drivers into a shared `main/drivers/display_dim.c`.
+
+Only the `panel10` variant has been tested on hardware. The `panel4` and `panels3` variants received the same dimming changes but have not been built or tested. The prebuilt factory images linked below come from the original project and do not include these changes; build from source to get them.
+
+---
+
 ## Supported hardware
 
 BETTA HA Panel ships as **three firmware variants**, one per supported device:

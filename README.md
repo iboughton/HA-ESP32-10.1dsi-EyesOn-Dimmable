@@ -14,15 +14,41 @@ A runtime-configurable Home Assistant wall panel for ESP32-P4 and ESP32-S3 touch
 
 ## Changes in this fork
 
-This is a modified version of [BETTA HA Panel](https://github.com/cptkirki/BETTA-HA-PANEL) by Cpt_Kirk, shared under the same [FNCL v1.1](LICENSE) license. Changes from the original:
+This is a modified version of [BETTA HA Panel](https://github.com/cptkirki/BETTA-HA-PANEL) by Cpt_Kirk, shared under the same [FNCL v1.1](LICENSE) license. It is built around the `panel10` hardware: a Waveshare ESP32-P4-NANO with the **10.1-DSI-TOUCH-A** display. Changes from the original:
+
+### Wired Ethernet and PoE (`panel10`)
+
+- The panel uses the ESP32-P4-NANO's built-in Ethernet port (IP101 PHY) as its primary network connection.
+- At boot it waits up to 5 seconds for a cable link, then up to 30 seconds for a DHCP address. If Ethernet connects, Wi-Fi stays off. If there's no cable or no address, it falls back to Wi-Fi as before.
+- With the board's optional PoE adapter fitted, a single Ethernet cable from a PoE switch or injector powers the panel and provides its network connection. The PoE adapter is hardware only; the firmware needs no extra settings for it.
+
+### Screen dimming and brightness controls
 
 - **Auto-dim:** the backlight dims to 10% after 2 minutes without a touch.
-- **Wake-touch guard:** the touch that wakes a dimmed screen only restores the brightness; it is not passed on to the button or widget underneath.
+- **Wake-touch guard:** the touch that wakes a dimmed screen only restores the brightness. It isn't passed on to the button underneath, so you can't switch a light or arm the alarm by accident while waking the screen.
 - **Brightness buttons:** − and + buttons at the bottom right of the navigation bar change the brightness in 10% steps (10–100%). The level is saved and restored after a reboot and when the screen wakes.
-- **10.1-DSI-TOUCH-A support (`panel10`):** the build now targets the Waveshare 10.1-DSI-TOUCH-A panel. Its backlight controller only accepts brightness commands on register `0x96`; the original setting wrote `0x86`, which this panel ignores, so brightness could not be changed.
+- **10.1-DSI-TOUCH-A backlight fix:** this panel's backlight controller only accepts brightness commands on register `0x96`. The original firmware wrote register `0x86`, which this panel ignores, so brightness could not be changed at all.
+
+### Alarm panel widget (DSC PC1616 via EyezOn EnvisaLink 4)
+
+A new **Alarm Panel** widget turns a dashboard page into a security keypad for a Home Assistant `alarm_control_panel` entity. It was built and tested with a **DSC PowerSeries PC1616** connected to Home Assistant through an **EyezOn EnvisaLink 4 (EVL-4)** module, but it works with any alarm panel Home Assistant exposes.
+
+- **Keypad and arming:** a number pad with Disarm, Arm Away, Arm Home, Arm Night and Vacation buttons. The code is entered for each action and never stored on the panel. If Home Assistant rejects a code, the panel shows the error.
+- **Status:** the current alarm state (disarmed, armed, arming, triggered and so on) is shown in colour, together with the alarm keypad's text display.
+- **Zones:** up to 16 zone sensors (doors, windows, motion detectors) with their open or closed state.
+- **Actions:** up to 8 switches and buttons, for example the chime switch, plus fire, police and ambulance panic buttons. Panic buttons only fire after being held for 2 seconds, so a stray tap can't trigger them.
+- **History:** a log of recent alarm events, loaded from Home Assistant's logbook (24 hours by default) and updated live.
+- The widget is added and configured in the web editor (**+ Alarm Panel**), where you pick the alarm entity, zones and actions.
+
+### Other changes
+
+- **Display stack (`panel10`):** display and touch now run on Espressif's `esp_lvgl_adapter` instead of `esp_lvgl_port`, with tear-free double-buffered drawing. The `esp_lvgl_adapter`, `esp_driver_ppa` and `esp_lcd_jd9365` components are bundled in `components/`, under their original Apache-2.0 licenses.
+- **Flash layout (`panel10`):** configured for the board's 16 MB flash with a custom partition table (`partitions.panel10.csv`).
 - **Code structure:** the dim timer moved out of the three panel drivers into a shared `main/drivers/display_dim.c`.
 
-Only the `panel10` variant has been tested on hardware. The `panel4` and `panels3` variants received the same dimming changes but have not been built or tested. The prebuilt factory images linked below come from the original project and do not include these changes; build from source to get them.
+### Tested hardware
+
+Only the `panel10` variant has been tested on hardware. The `panel4` and `panels3` variants received the same dimming changes but have not been built or tested. The prebuilt factory images linked below come from the original project and don't include any of these changes; build from source to get them.
 
 ---
 

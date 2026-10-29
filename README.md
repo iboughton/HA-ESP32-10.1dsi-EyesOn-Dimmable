@@ -45,10 +45,16 @@ A new **Alarm Panel** widget turns a dashboard page into a security keypad for a
 - **Display stack (`panel10`):** display and touch now run on Espressif's `esp_lvgl_adapter` instead of `esp_lvgl_port`, with tear-free double-buffered drawing. The `esp_lvgl_adapter`, `esp_driver_ppa` and `esp_lcd_jd9365` components are bundled in `components/`, under their original Apache-2.0 licenses.
 - **Flash layout (`panel10`):** configured for the board's 16 MB flash with a custom partition table (`partitions.panel10.csv`).
 - **Code structure:** the dim timer moved out of the three panel drivers into a shared `main/drivers/display_dim.c`.
+- **ESP-IDF 6.1:** all three variants build with ESP-IDF v6.1. `panel4` and `panels3` needed fixes for this:
+  - LVGL pinned to 9.4 for all variants (LVGL 9.6 turns a deprecation warning into a build failure).
+  - `panel4`: a patched copy of Waveshare's ESP32-P4-WIFI6-Touch-LCD-4B board package in `vendor/`, updated for IDF 6 driver changes.
+  - `panels3`: the S3 RGB display driver updated for the IDF 6 colour-format API, and the P4-only display components excluded from the S3 build.
+  - Each build preset now sets its chip target.
+- **Firmware updates:** the web UI's OTA update looks for new firmware in this fork's GitHub Releases, not the original project's, so an update can't replace this firmware with the original. The version is `v0.8.2-eyeson.1`.
 
 ### Tested hardware
 
-Only the `panel10` variant has been tested on hardware. The `panel4` and `panels3` variants received the same dimming changes but have not been built or tested. The prebuilt factory images linked below come from the original project and don't include any of these changes; build from source to get them.
+Only the `panel10` variant (with the 10.1-DSI-TOUCH-A display) has been tested on hardware. The `panel4` and `panels3` images below build cleanly and include the same dimming changes, but nobody has run them on a real device yet.
 
 ---
 
@@ -58,9 +64,9 @@ BETTA HA Panel ships as **three firmware variants**, one per supported device:
 
 | Variant    | Device                                                  | Resolution | Factory image                                                                     |
 |------------|---------------------------------------------------------|------------|-----------------------------------------------------------------------------------|
-| `panel4`   | Waveshare **ESP32-P4-WIFI6-Touch-LCD-4B** (4")          | 720 × 720  | [betta86-ha-panel-v0.8.2-panel4.factory.bin](release/betta86-ha-panel-v0.8.2-panel4.factory.bin)   |
-| `panel10`  | Waveshare **ESP32-P4 Module Nano + 10.1" DSI panel**    | 1280 × 800 | [betta86-ha-panel-v0.8.2-panel10.factory.bin](release/betta86-ha-panel-v0.8.2-panel10.factory.bin) |
-| `panels3`  | Guition **ESP32-S3-4848S040** (4")                      | 480 × 480  | [betta86-ha-panel-v0.8.2-panels3.factory.bin](release/betta86-ha-panel-v0.8.2-panels3.factory.bin) |
+| `panel4`   | Waveshare **ESP32-P4-WIFI6-Touch-LCD-4B** (4")          | 720 × 720  | [betta86-ha-panel-v0.8.2-eyeson.1-panel4.factory.bin](release/betta86-ha-panel-v0.8.2-eyeson.1-panel4.factory.bin)   |
+| `panel10`  | Waveshare **ESP32-P4 Module Nano + 10.1" DSI panel**    | 1280 × 800 | [betta86-ha-panel-v0.8.2-eyeson.1-panel10.factory.bin](release/betta86-ha-panel-v0.8.2-eyeson.1-panel10.factory.bin) |
+| `panels3`  | Guition **ESP32-S3-4848S040** (4")                      | 480 × 480  | [betta86-ha-panel-v0.8.2-eyeson.1-panels3.factory.bin](release/betta86-ha-panel-v0.8.2-eyeson.1-panels3.factory.bin) |
 
 All variants share the same dashboard engine, web editor, and Home Assistant integration. Pick the image that matches your board.
 
@@ -115,13 +121,13 @@ Full history: [release-notes.md](release-notes.md).
 
 ## Building from source
 
-Prerequisites: **ESP-IDF v5.5.2**, Python 3.11+, the Smart86 / Waveshare BSP components (pulled automatically via the component manager).
+Prerequisites: **ESP-IDF v6.1**, Python 3.11+, the Smart86 / Waveshare BSP components (pulled automatically via the component manager).
 
 ```powershell
-# Pick a variant preset
-idf.py -B build-panel4   -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.panel4"                              build
-idf.py -B build-panel10  -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.panel10"                             build
-idf.py -B build-panels3  -DSDKCONFIG_DEFAULTS="sdkconfig.defaults.s3;sdkconfig.defaults.panels3" -DSDKCONFIG=sdkconfig.panels3  build
+# Pick a variant preset (configure once, then build)
+cmake --preset panel4;   cmake --build build-panel4
+cmake --preset panel10;  cmake --build build-panel10
+cmake --preset panels3;  cmake --build build-panels3
 
 # Package release images (factory + OTA) for one or both variants
 pwsh tools/make_factory_bin.ps1 -Variant both

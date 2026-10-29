@@ -14,7 +14,8 @@
       "binaryDir": "${sourceDir}/build-panel4",
       "cacheVariables": {
         "SDKCONFIG_DEFAULTS": "sdkconfig.defaults;sdkconfig.defaults.panel4",
-        "SDKCONFIG": "${sourceDir}/sdkconfig.panel4"
+        "SDKCONFIG": "${sourceDir}/sdkconfig.panel4",
+        "IDF_TARGET": "esp32p4"
       }
     },
     {
@@ -54,7 +55,8 @@
       "binaryDir": "${sourceDir}/build-panels3",
       "cacheVariables": {
         "SDKCONFIG_DEFAULTS": "sdkconfig.defaults.s3;sdkconfig.defaults.panels3",
-        "SDKCONFIG": "${sourceDir}/sdkconfig.panels3"
+        "SDKCONFIG": "${sourceDir}/sdkconfig.panels3",
+        "IDF_TARGET": "esp32s3"
       }
     }
   ]

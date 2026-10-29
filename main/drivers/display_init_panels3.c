@@ -306,7 +306,7 @@ static esp_err_t panel_create(void)
          * ESP32-S3 (gdma_config_transfer rejects >64 for external memory). */
         .dma_burst_size      = 64,
         .data_width          = 16,
-        .bits_per_pixel      = 16,
+        .in_color_format     = LCD_COLOR_FMT_RGB565,  /* IDF 6: replaces bits_per_pixel = 16 */
         .de_gpio_num         = PANELS3_DE_GPIO,
         .pclk_gpio_num       = PANELS3_PCLK_GPIO,
         .vsync_gpio_num      = PANELS3_VSYNC_GPIO,

@@ -62,7 +62,7 @@ const LIGHT_ENTITY_PICKER_MAX_POLLS = 90;
 const ENTITY_PICKER_SEARCH_DEBOUNCE_MS = 350;
 const SETUP_WIZARD_PENDING_STORAGE_KEY = "betta.setupWizard.pending";
 const SETUP_WIZARD_DISMISSED_STORAGE_KEY = "betta.setupWizard.dismissed";
-const OTA_RELEASE_REPO = "cptkirki/BETTA-HA-PANEL";
+const OTA_RELEASE_REPO = "iboughton/HA-ESP32-10.1dsi-EyesOn-Dimmable";
 const ENTITY_PICKER_CONFIGS = {
   sensor: {
     domain: "sensor",
@@ -470,7 +470,7 @@ const WEB_I18N_BUILTIN = {
     "settings.ap.hint": "If setup AP is active, connect to it and open <code>http://192.168.4.1</code>.",
     "settings.ota.heading": "Firmware Update",
     "settings.ota.url": "OTA URL",
-    "settings.ota.url_placeholder": "https://github.com/cptkirki/BETTA-HA-PANEL/releases/latest/download/...",
+    "settings.ota.url_placeholder": "https://github.com/iboughton/HA-ESP32-10.1dsi-EyesOn-Dimmable/releases/latest/download/...",
     "settings.ota.flash_url": "Flash URL",
     "settings.ota.refresh": "Refresh Status",
     "settings.ota.file": "OTA .bin File",
@@ -807,7 +807,7 @@ const WEB_I18N_BUILTIN = {
     "settings.ap.hint": "Wenn Setup AP aktiv ist, verbinden und <code>http://192.168.4.1</code> oeffnen.",
     "settings.ota.heading": "Firmware Update",
     "settings.ota.url": "OTA URL",
-    "settings.ota.url_placeholder": "https://github.com/cptkirki/BETTA-HA-PANEL/releases/latest/download/...",
+    "settings.ota.url_placeholder": "https://github.com/iboughton/HA-ESP32-10.1dsi-EyesOn-Dimmable/releases/latest/download/...",
     "settings.ota.flash_url": "URL flashen",
     "settings.ota.refresh": "Status aktualisieren",
     "settings.ota.file": "OTA .bin Datei",
@@ -1029,7 +1029,7 @@ const WEB_I18N_BUILTIN = {
     "settings.ap.hint": "Si el AP de setup esta activo, conectate y abre <code>http://192.168.4.1</code>.",
     "settings.ota.heading": "Actualizacion de firmware",
     "settings.ota.url": "URL OTA",
-    "settings.ota.url_placeholder": "https://github.com/cptkirki/BETTA-HA-PANEL/releases/latest/download/...",
+    "settings.ota.url_placeholder": "https://github.com/iboughton/HA-ESP32-10.1dsi-EyesOn-Dimmable/releases/latest/download/...",
     "settings.ota.flash_url": "Flashear URL",
     "settings.ota.refresh": "Actualizar estado",
     "settings.ota.file": "Archivo OTA .bin",
@@ -1247,7 +1247,7 @@ const WEB_I18N_BUILTIN = {
     "settings.ap.hint": "Si le setup AP est actif, connectez-vous et ouvrez <code>http://192.168.4.1</code>.",
     "settings.ota.heading": "Mise a jour firmware",
     "settings.ota.url": "URL OTA",
-    "settings.ota.url_placeholder": "https://github.com/cptkirki/BETTA-HA-PANEL/releases/latest/download/...",
+    "settings.ota.url_placeholder": "https://github.com/iboughton/HA-ESP32-10.1dsi-EyesOn-Dimmable/releases/latest/download/...",
     "settings.ota.flash_url": "Flasher URL",
     "settings.ota.refresh": "Actualiser statut",
     "settings.ota.file": "Fichier OTA .bin",

@@ -16,7 +16,9 @@ dependencies:
   espressif/cjson:
     version: "^1.7.19"
   lvgl/lvgl:
-    version: "^9"
+    # Same LVGL as panel10. 9.6 adds a deprecation #warning for
+    # LV_ASSERT_HANDLER_INCLUDE that -Werror turns into a build failure.
+    version: "~9.4.0"
   espressif/esp_lvgl_port:
     version: "*"
   espressif/esp_lcd_touch:
